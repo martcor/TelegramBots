@@ -40,4 +40,9 @@ public class Commands {
     public static final String listCommand = commandInitChar + "list";
     /// Start directions command
     public static final String startDirectionCommand = commandInitChar + "directions";
+
+    /// Sum all of the
+    public static final String sum = commandInitChar + "sum";
+    /// Start directions command
+    public static final String delimiter = commandInitChar + "delimiter";
 }
