@@ -1,10 +1,15 @@
 package org.telegram.services;
 
+import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.entity.BufferedHttpEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 import org.json.JSONObject;
 import org.telegram.BuildVars;
 import org.telegram.database.DatabaseManager;
@@ -26,12 +31,14 @@ import java.time.format.DateTimeFormatter;
  * @date 20 of June of 2015
  */
 public class WeatherService {
+    private static volatile BotLogger log = BotLogger.getLogger(WeatherService.class.getName());
+
     private static final String BASEURL = "http://api.openweathermap.org/data/2.5/"; ///< Base url for REST
     private static final String FORECASTPATH = "forecast/daily";
     private static final String CURRENTPATH = "weather";
     private static final String APIIDEND = "&APPID=" + BuildVars.OPENWEATHERAPIKEY;
-    private static final String FORECASTPARAMS = "&cnt=3&units=metric";
-    private static final String CURRENTPARAMS = "&cnt=1&units=metric";
+    private static final String FORECASTPARAMS = "&cnt=3&units=metric&lang=@language@";
+    private static final String CURRENTPARAMS = "&cnt=1&units=metric&lang=@language@";
     private static final DateTimeFormatter dateFormaterFromDate = DateTimeFormatter.ofPattern("dd/MM/yyyy"); ///< Date to text formater
     private static volatile WeatherService instance; ///< Instance of this class
 
@@ -68,35 +75,36 @@ public class WeatherService {
      * @return userHash to be send to use
      * @note Forecast for the following 3 days
      */
-    public String fetchWeatherForecast(String city, Integer userId) {
+    public String fetchWeatherForecast(String city, Integer userId, String language) {
         String cityFound;
         String responseToUser;
         try {
-            String completURL = BASEURL + FORECASTPATH + "?" + getCityQuery(city) + FORECASTPARAMS + APIIDEND;
-            HttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+            String completURL = BASEURL + FORECASTPATH + "?" + getCityQuery(city) +
+                    FORECASTPARAMS.replace("@language@", language) + APIIDEND;
+            CloseableHttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
             HttpGet request = new HttpGet(completURL);
-            HttpResponse response = client.execute(request);
-            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-            String line;
-            String responseString = "";
-            while ((line = rd.readLine()) != null) {
-                responseString += line;
-            }
+
+            CloseableHttpResponse response = client.execute(request);
+            HttpEntity ht = response.getEntity();
+
+            BufferedHttpEntity buf = new BufferedHttpEntity(ht);
+            String responseString = EntityUtils.toString(buf, "UTF-8");
 
             JSONObject jsonObject = new JSONObject(responseString);
+            log.warning(jsonObject.toString());
             if (jsonObject.getInt("cod") == 200) {
                 cityFound = jsonObject.getJSONObject("city").getString("name") + " (" +
                         jsonObject.getJSONObject("city").getString("country") + ")";
                 saveRecentWeather(userId, cityFound, jsonObject.getJSONObject("city").getInt("id"));
-                responseToUser = "The weather for " + cityFound + " will be:\n\n";
-                responseToUser += convertListOfForecastToString(jsonObject);
-                responseToUser += "Thank you for using our Weather Bot.\n\n" +
-                        "Your Telegram Team";
+                responseToUser = String.format(LocalisationService.getInstance().getString("weatherForcast", language),
+                        cityFound, convertListOfForecastToString(jsonObject, language));
             } else {
-                responseToUser = "City not found";
+                log.warning(jsonObject.toString());
+                responseToUser = LocalisationService.getInstance().getString("cityNotFound", language);
             }
-        } catch (IOException e) {
-            responseToUser = "Error fetching weather info";
+        } catch (Exception e) {
+            log.error(e);
+            responseToUser = LocalisationService.getInstance().getString("errorFetchingWeather", language);
         }
         return responseToUser;
     }
@@ -107,35 +115,34 @@ public class WeatherService {
      * @return userHash to be send to use
      * @note Forecast for the following 3 days
      */
-    public String fetchWeatherForecastByLocation(Double longitude, Double latitude, Integer userId) {
+    public String fetchWeatherForecastByLocation(Double longitude, Double latitude, Integer userId, String language) {
         String cityFound;
         String responseToUser;
         try {
-            String completURL = BASEURL + FORECASTPATH + "?lat=" + URLEncoder.encode(latitude + "", "UTF-8") + "&lon=" + URLEncoder.encode(longitude + "", "UTF-8") + FORECASTPARAMS + APIIDEND;;
-            HttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+            String completURL = BASEURL + FORECASTPATH + "?lat=" + URLEncoder.encode(latitude + "", "UTF-8") + "&lon="
+                    + URLEncoder.encode(longitude + "", "UTF-8") + FORECASTPARAMS.replace("@language@", language) + APIIDEND;;
+            CloseableHttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
             HttpGet request = new HttpGet(completURL);
-            HttpResponse response = client.execute(request);
-            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-            String line;
-            String responseString = "";
-            while ((line = rd.readLine()) != null) {
-                responseString += line;
-            }
+            CloseableHttpResponse response = client.execute(request);
+            HttpEntity ht = response.getEntity();
+
+            BufferedHttpEntity buf = new BufferedHttpEntity(ht);
+            String responseString = EntityUtils.toString(buf, "UTF-8");
 
             JSONObject jsonObject = new JSONObject(responseString);
             if (jsonObject.getInt("cod") == 200) {
                 cityFound = jsonObject.getJSONObject("city").getString("name") + " (" +
                         jsonObject.getJSONObject("city").getString("country") + ")";
                 saveRecentWeather(userId, cityFound, jsonObject.getJSONObject("city").getInt("id"));
-                responseToUser = "The weather for " + cityFound + " will be:\n\n";
-                responseToUser += convertListOfForecastToString(jsonObject);
-                responseToUser += "Thank you for using our Weather Bot.\n\n" +
-                        "Your Telegram Team";
+                responseToUser = String.format(LocalisationService.getInstance().getString("weatherForcast", language),
+                        cityFound, convertListOfForecastToString(jsonObject, language));
             } else {
-                responseToUser = "City not found";
+                log.warning(jsonObject.toString());
+                responseToUser = LocalisationService.getInstance().getString("cityNotFound", language);
             }
-        } catch (IOException e) {
-            responseToUser = "Error fetching weather info";
+        } catch (Exception e) {
+            log.error(e);
+            responseToUser = LocalisationService.getInstance().getString("errorFetchingWeather", language);
         }
         return responseToUser;
     }
@@ -147,35 +154,34 @@ public class WeatherService {
      * @return userHash to be send to use
      * @note Forecast for the following 3 days
      */
-    public String fetchWeatherCurrent(String city, Integer userId) {
+    public String fetchWeatherCurrent(String city, Integer userId, String language) {
         String cityFound;
         String responseToUser;
         try {
-            String completURL = BASEURL + CURRENTPATH + "?" + getCityQuery(city) + CURRENTPARAMS + APIIDEND;
-            HttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+            String completURL = BASEURL + CURRENTPATH + "?" + getCityQuery(city) +
+                    CURRENTPARAMS.replace("@language@", language) + APIIDEND;
+            CloseableHttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
             HttpGet request = new HttpGet(completURL);
-            HttpResponse response = client.execute(request);
-            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-            String line;
-            String responseString = "";
-            while ((line = rd.readLine()) != null) {
-                responseString += line;
-            }
+            CloseableHttpResponse response = client.execute(request);
+            HttpEntity ht = response.getEntity();
+
+            BufferedHttpEntity buf = new BufferedHttpEntity(ht);
+            String responseString = EntityUtils.toString(buf, "UTF-8");
 
             JSONObject jsonObject = new JSONObject(responseString);
             if (jsonObject.getInt("cod") == 200) {
                 cityFound = jsonObject.getString("name") + " (" +
                         jsonObject.getJSONObject("sys").getString("country") + ")";
                 saveRecentWeather(userId, cityFound, jsonObject.getInt("id"));
-                responseToUser = "The weather for " + cityFound + " is:\n\n";
-                responseToUser += convertCurrentWeatherToString(jsonObject);
-                responseToUser += "Thank you for using our Weather Bot.\n\n" +
-                        "Your Telegram Team";
+                responseToUser = String.format(LocalisationService.getInstance().getString("weatherCurrent", language),
+                        cityFound, convertCurrentWeatherToString(jsonObject, language));
             } else {
-                responseToUser = "City not found";
+                log.warning(jsonObject.toString());
+                responseToUser = LocalisationService.getInstance().getString("cityNotFound", language);
             }
-        } catch (IOException e) {
-            responseToUser = "Error fetching weather info";
+        } catch (Exception e) {
+            log.error(e);
+            responseToUser = LocalisationService.getInstance().getString("errorFetchingWeather", language);
         }
         return responseToUser;
     }
@@ -186,49 +192,45 @@ public class WeatherService {
      * @return userHash to be send to use
      * @note Forecast for the following 3 days
      */
-    public String fetchWeatherCurrentByLocation(Double longitude, Double latitude, Integer userId) {
+    public String fetchWeatherCurrentByLocation(Double longitude, Double latitude, Integer userId, String language) {
         String cityFound;
         String responseToUser;
         try {
-            String completURL = BASEURL + CURRENTPATH + "?q=" + URLEncoder.encode("lat=" + latitude + "&lon=" + longitude, "UTF-8") + CURRENTPARAMS + APIIDEND;;
-            HttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+            String completURL = BASEURL + CURRENTPATH + "?q=" + URLEncoder.encode("lat=" + latitude + "&lon=" +
+                    longitude, "UTF-8") + CURRENTPARAMS.replace("@language@", language) + APIIDEND;;
+            CloseableHttpClient client = HttpClientBuilder.create().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
             HttpGet request = new HttpGet(completURL);
-            HttpResponse response = client.execute(request);
-            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-            String line;
-            String responseString = "";
-            while ((line = rd.readLine()) != null) {
-                responseString += line;
-            }
+            CloseableHttpResponse response = client.execute(request);
+            HttpEntity ht = response.getEntity();
+
+            BufferedHttpEntity buf = new BufferedHttpEntity(ht);
+            String responseString = EntityUtils.toString(buf, "UTF-8");
 
             JSONObject jsonObject = new JSONObject(responseString);
             if (jsonObject.getInt("cod") == 200) {
                 cityFound = jsonObject.getString("name") + " (" +
                         jsonObject.getJSONObject("sys").getString("country") + ")";
                 saveRecentWeather(userId, cityFound, jsonObject.getInt("id"));
-                responseToUser = "The weather for " + cityFound + " is:\n\n";
-                responseToUser += convertCurrentWeatherToString(jsonObject);
-                responseToUser += "Thank you for using our Weather Bot.\n\n" +
-                        "Your Telegram Team";
+                responseToUser = String.format(LocalisationService.getInstance().getString("weatherCurrent", language),
+                        cityFound, convertCurrentWeatherToString(jsonObject, language));
             } else {
-                responseToUser = "City not found";
+                log.warning(jsonObject.toString());
+                responseToUser = LocalisationService.getInstance().getString("cityNotFound", language);
             }
-        } catch (IOException e) {
-            responseToUser = "Error fetching weather info";
+        } catch (Exception e) {
+            log.error(e);
+            responseToUser = LocalisationService.getInstance().getString("errorFetchingWeather", language);
         }
         return responseToUser;
     }
 
-    private String convertCurrentWeatherToString(JSONObject jsonObject) {
+    private String convertCurrentWeatherToString(JSONObject jsonObject, String language) {
         String temp = jsonObject.getJSONObject("main").getDouble("temp")+"";
         String cloudiness = jsonObject.getJSONObject("clouds").getInt("all") + "%";
         String weatherDesc = jsonObject.getJSONArray("weather").getJSONObject(0).getString("description");
 
-        String responseToUser = "";
-        responseToUser +=
-                "  |-- Weather:  " + weatherDesc + "\n" +
-                        "  |-- Cloudiness: " + cloudiness + "\n" +
-                        "  |-- Temperature: " + temp + "ºC\n\n";
+        String responseToUser = LocalisationService.getInstance().getString("currentWeatherPart", language);
+        responseToUser = String.format(responseToUser, weatherDesc, cloudiness, temp);
 
         return responseToUser;
     }
@@ -239,11 +241,11 @@ public class WeatherService {
      * @param jsonObject JSONObject contining the list
      * @return String to be sent to the user
      */
-    private String convertListOfForecastToString(JSONObject jsonObject) {
+    private String convertListOfForecastToString(JSONObject jsonObject, String language) {
         String responseToUser = "";
         for (int i = 0; i < jsonObject.getJSONArray("list").length(); i++) {
             JSONObject internalJSON = jsonObject.getJSONArray("list").getJSONObject(i);
-            responseToUser += convertInternalInformationToString(internalJSON);
+            responseToUser += convertInternalInformationToString(internalJSON, language);
         }
         return responseToUser;
     }
@@ -254,7 +256,7 @@ public class WeatherService {
      * @param internalJSON JSONObject containing the part to convert
      * @return String to be sent to the user
      */
-    private String convertInternalInformationToString(JSONObject internalJSON) {
+    private String convertInternalInformationToString(JSONObject internalJSON, String language) {
         String responseToUser = "";
         LocalDate date;
         String tempMax;
@@ -266,10 +268,10 @@ public class WeatherService {
         JSONObject weatherObject = internalJSON.getJSONArray("weather").getJSONObject(0);
         weatherDesc = weatherObject.getString("description");
 
-        responseToUser += "*On " + dateFormaterFromDate.format(date) + "\n" +
-                "  |--Forecast:  " + weatherDesc + "\n" +
-                "  |--High temperature: " + tempMax + "ºC\n" +
-                "  |--Low temperature: " + tempMin + "ºC\n\n";
+        responseToUser = LocalisationService.getInstance().getString("forecastWeatherPart", language);
+        responseToUser = String.format(responseToUser, dateFormaterFromDate.format(date), weatherDesc,
+                tempMax, tempMin);
+
         return responseToUser;
     }
 

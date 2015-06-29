@@ -73,6 +73,12 @@ public class DatabaseManager {
             if (currentVersion == 2) {
                 currentVersion = updateToVersion3();
             }
+            if (currentVersion == 3) {
+                currentVersion = updateToVersion4();
+            }
+            if (currentVersion == 4) {
+                currentVersion = updateToVersion5();
+            }
             connetion.commitTransaction();
         } catch (SQLException e) {
             log.error(e);
@@ -81,23 +87,36 @@ public class DatabaseManager {
 
     private int updateToVersion2() throws SQLException {
         connetion.executeQuery(CreationStrings.createRecentWeatherTable);
-        connetion.executeQuery("INSERT IGNORE INTO Versions (Version) VALUES(2);");
+        connetion.executeQuery(String.format(CreationStrings.insertCurrentVersion, 2));
         return 2;
     }
 
     private int updateToVersion3() throws SQLException {
         connetion.executeQuery(CreationStrings.createDirectionsDatabase);
-        connetion.executeQuery("INSERT IGNORE INTO Versions (Version) VALUES(3);");
+        connetion.executeQuery(String.format(CreationStrings.insertCurrentVersion, 3));
         return 2;
+    }
+
+    private int updateToVersion4() throws SQLException {
+        connetion.executeQuery(CreationStrings.createLastUpdateDatabase);
+        connetion.executeQuery(String.format(CreationStrings.insertCurrentVersion, 4));
+        return 4;
+    }
+
+    private int updateToVersion5() throws SQLException {
+        connetion.executeQuery(CreationStrings.createUserLanguageDatabase);
+        connetion.executeQuery(String.format(CreationStrings.insertCurrentVersion, 5));
+        return 5;
     }
 
     private int createNewTables() throws SQLException {
         connetion.executeQuery(CreationStrings.createVersionTable);
         connetion.executeQuery(CreationStrings.createFilesTable);
-        connetion.executeQuery(CreationStrings.insertCurrentVersion);
+        connetion.executeQuery(String.format(CreationStrings.insertCurrentVersion, CreationStrings.version));
         connetion.executeQuery(CreationStrings.createUsersForFilesTable);
         connetion.executeQuery(CreationStrings.createRecentWeatherTable);
         connetion.executeQuery(CreationStrings.createDirectionsDatabase);
+        connetion.executeQuery(CreationStrings.createUserLanguageDatabase);
         return CreationStrings.version;
     }
 
@@ -311,6 +330,62 @@ public class DatabaseManager {
             final PreparedStatement preparedStatement = connetion.getPreparedStatement("DELETE FROM Directions WHERE userId=?;");
             preparedStatement.setInt(1, userId);
 
+            updatedRows = preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return updatedRows > 0;
+    }
+
+    public boolean putLastUpdate(String token, Integer updateId) {
+        int updatedRows = 0;
+        try {
+            final PreparedStatement preparedStatement = connetion.getPreparedStatement("REPLACE INTO LastUpdate (token, updateId) VALUES(?, ?)");
+            preparedStatement.setString(1, token);
+            preparedStatement.setInt(2, updateId);
+            updatedRows = preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return updatedRows > 0;
+    }
+
+    public Integer getLastUpdate(String token) {
+        Integer updateId = -1;
+        try {
+            final PreparedStatement preparedStatement = connetion.getPreparedStatement("SELECT updateId FROM LastUpdate WHERE token = ?");
+            preparedStatement.setString(1, token);
+            final ResultSet result = preparedStatement.executeQuery();
+            if (result.next()) {
+                updateId = result.getInt("updateId");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return updateId;
+    }
+
+    public String getUserLanguage(Integer userId) {
+        String languageCode = "en";
+        try {
+            final PreparedStatement preparedStatement = connetion.getPreparedStatement("SELECT languageCode FROM UserLanguage WHERE userId = ?");
+            preparedStatement.setInt(1, userId);
+            final ResultSet result = preparedStatement.executeQuery();
+            if (result.next()) {
+                languageCode = result.getString("languageCode");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return languageCode;
+    }
+
+    public boolean putUserLanguage(Integer userId, String language) {
+        int updatedRows = 0;
+        try {
+            final PreparedStatement preparedStatement = connetion.getPreparedStatement("REPLACE INTO UserLanguage (userId, languageCode) VALUES(?, ?)");
+            preparedStatement.setInt(1, userId);
+            preparedStatement.setString(2, language);
             updatedRows = preparedStatement.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
